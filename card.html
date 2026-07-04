@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>カードモード</title>
+  <style>
+    /* リセットと基本 */
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f2f2f2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    .screen {
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      display: block;
+    }
+
+    /* カード全体を包む */
+    .card-wrapper {
+      width: 100%;
+      max-width: 500px;
+      margin: 18px auto;
+      padding: 0 12px; /* 両端に数ミリの余白 */
+      box-sizing: border-box;
+    }
+
+    /* ヘッダー（× と ↺） */
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .back-button,
+    .reset-btn {
+      font-size: 1.8rem;
+      font-weight: 700;
+      cursor: pointer;
+      user-select: none;
+      line-height: 1;
+      padding: 6px 8px;
+    }
+
+    /* カード本体（共通） */
+    .card {
+      width: 100%;
+      min-height: 48vh;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+      display: flex;
+      flex-direction: column;
+      justify-content: center; /* 上下中央 */
+      box-sizing: border-box;
+      padding: 20px 14px;
+      line-height: 1.6;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      transition: all 160ms ease;
+      word-break: break-word;
+    }
+
+    /* 表面（問題側） */
+    .card.front {
+      align-items: flex-start;   /* 左揃え */
+      text-align: left;
+      font-size: 12px;           /* 見た目で約9pt相当 */
+    }
+
+    /* 裏面（答え側） */
+    .card.back {
+      align-items: center;       /* 左右中央 */
+      text-align: center;
+      font-size: 16px;           /* 見た目で約12pt相当 */
+    }
+
+    /* 進捗（中央表示） */
+    .progress {
+      font-size: 1.05rem;
+      color: #555;
+      text-align: center;
+      min-width: 56px;
+    }
+
+    /* コントロール全体（覚えたボタン＋矢印＋進捗） */
+    .controls {
+      width: 100%;
+      max-width: 500px;
+      margin: 12px auto 0;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding: 0 12px;
+    }
+
+    /* 覚えたボタンは中央 */
+    .learned-btn {
+      background: #4CAF50;
+      color: white;
+      padding: 12px 18px;
+      border-radius: 10px;
+      font-size: 1.05rem;
+      border: none;
+      cursor: pointer;
+      user-select: none;
+      width: 100%;
+      max-width: 320px;
+    }
+
+    /* 矢印エリアを中央に配置、進捗を中央に */
+    .arrow-area {
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 28px;
+    }
+
+    /* 矢印 */
+    .arrow {
+      font-size: 2.0rem;
+      font-weight: 800;
+      padding: 6px 12px;
+      cursor: pointer;
+      user-select: none;
+      background: transparent;
+      border-radius: 8px;
+      line-height: 1;
+    }
+    .arrow:active { transform: translateY(1px); }
+
+    /* 小さい画面向け微調整 */
+    @media (max-width: 480px) {
+      .card {
+        min-height: 50vh;
+        padding: 18px 12px;
+      }
+      .card.front { font-size: 16px; }
+      .card.back  { font-size: 18px; }
+      .arrow { font-size: 1.8rem; }
+      .learned-btn { padding: 12px 16px; font-size: 1rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="screen">
+    <div class="card-wrapper">
+
+      <div class="card-header">
+        <div class="back-button" id="btn-back">×</div>
+        <div class="reset-btn" onclick="resetExcluded()">↺</div>
+      </div>
+
+      <!-- カード本体。ロード中はメッセージを表示 -->
+      <div id="card" class="card front" onclick="flipCard()">データを読み込んでいます...</div>
+
+      <!-- コントロール（覚えたボタン、矢印、進捗） -->
+      <div class="controls">
+        <button id="btn-learned" class="learned-btn">覚えた</button>
+
+        <div class="arrow-area">
+          <div class="arrow" onclick="prevCard()">◀</div>
+          <div id="progress" class="progress">0 / 0</div>
+          <div class="arrow" onclick="nextCard()">▶</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // === 1. URLから情報を受け取る ===
+    const urlParam = new URLSearchParams(window.location.search).get("url");
+
+    // 教材ごとに進捗を分けるためのID生成（index.htmlと共通）
+    function materialIdFromUrl(url){
+      if(!url) return "default";
+      try{ return btoa(unescape(encodeURIComponent(url))).replace(/=+$/,""); }
+      catch(e){ return encodeURIComponent(url).replace(/[^a-zA-Z0-9]/g,'_'); }
+    }
+    const matId = materialIdFromUrl(urlParam);
+    const EXCLUDED_KEY = `excluded_${matId}_card`; 
+
+    // === 2. 変数の準備 ===
+    let originalWords = []; // CSVから読み込んだ全データ
+    let words = [];         // 除外されていないデータ
+    let index = 0;
+    let showingFront = true;
+    let excluded = JSON.parse(localStorage.getItem(EXCLUDED_KEY) || "[]");
+
+    const cardEl = document.getElementById("card");
+    const progressEl = document.getElementById("progress");
+    const learnedBtn = document.getElementById("btn-learned");
+
+    // 戻る（×）ボタンの動作
+    document.getElementById("btn-back").onclick = () => {
+      if (urlParam) {
+        location.href = `mode-select.html?url=${encodeURIComponent(urlParam)}`;
+      } else {
+        location.href = "mode-select.html";
+      }
+    };
+
+    // === 3. CSVの読み込み ===
+    async function loadCSV() {
+      if (!urlParam) {
+        cardEl.textContent = "エラー：URLが指定されていません。";
+        return;
+      }
+
+      try {
+        const response = await fetch(urlParam);
+        if (!response.ok) throw new Error("通信エラー");
+        const text = await response.text();
+        
+        // CSVを解析して配列にする
+        const lines = text.trim().split('\n');
+        originalWords = [];
+        for (let line of lines) {
+          const parts = line.split(',');
+          // 問題と答えが両方ある行だけ追加
+          if (parts.length >= 2 && parts[0].trim() !== "") {
+            originalWords.push({
+              question: parts[0].trim(),
+              answer: parts[1].trim()
+            });
+          }
+        }
+        
+        // 除外リストにないものだけを抽出
+        words = originalWords.filter(item => !excluded.includes(item.question));
+        updateCard();
+
+      } catch (error) {
+        console.error(error);
+        cardEl.textContent = "データの読み込みに失敗しました。";
+      }
+    }
+
+    // === 4. カードの表示と操作 ===
+    function updateCard() {
+      if (words.length === 0) {
+        cardEl.textContent = "すべて覚えました！";
+        progressEl.textContent = "";
+        return;
+      }
+
+      if (index < 0) index = 0;
+      if (index >= words.length) index = words.length - 1;
+
+      const item = words[index];
+      cardEl.textContent = showingFront ? item.question : item.answer;
+
+      if (showingFront) {
+        cardEl.classList.remove('back');
+        cardEl.classList.add('front');
+      } else {
+        cardEl.classList.remove('front');
+        cardEl.classList.add('back');
+      }
+
+      progressEl.textContent = `${index + 1} / ${words.length}`;
+    }
+
+    function flipCard() {
+      if (words.length === 0) return;
+      showingFront = !showingFront;
+      updateCard();
+    }
+
+    function nextCard() {
+      if (words.length === 0) return;
+      if (index < words.length - 1) {
+        index++;
+        showingFront = true;
+        updateCard();
+      }
+    }
+
+    function prevCard() {
+      if (words.length === 0) return;
+      if (index > 0) {
+        index--;
+        showingFront = true;
+        updateCard();
+      }
+    }
+
+    // 覚えた（除外）
+    learnedBtn.onclick = () => {
+      if (words.length === 0) return;
+      const item = words[index];
+      
+      excluded.push(item.question);
+      localStorage.setItem(EXCLUDED_KEY, JSON.stringify(excluded));
+      
+      words.splice(index, 1);
+      if (index >= words.length) index = words.length - 1;
+      showingFront = true;
+      updateCard();
+    };
+
+    // 除外リセット（↺）
+    function resetExcluded() {
+      if (!confirm("除外リストをリセットしますか？")) return;
+      localStorage.removeItem(EXCLUDED_KEY);
+      excluded = [];
+      words = originalWords.slice();
+      index = 0;
+      showingFront = true;
+      updateCard();
+      alert("除外リストをリセットしました");
+    }
+
+    // === 画面が開いたときにデータを読み込む ===
+    document.addEventListener("DOMContentLoaded", loadCSV);
+  </script>
+</body>
+</html>

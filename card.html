@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>カードモード</title>
+  <style>
+    /* リセット */
+    *,*::before,*::after{box-sizing:border-box}
+    html,body{height:100%;margin:0;padding:0}
+    body{
+      font-family: -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background:#f2f2f2;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+      color:#111;
+      -webkit-text-size-adjust:100%;
+    }
+
+    /* 全体ラッパー（幅をスペルモードと統一して中央配置） */
+    .screen{
+      width:100%;
+      max-width:640px;
+      margin:15mm auto 20px;
+      padding:0 12px;
+      display:flex;
+      flex-direction:column;
+    }
+
+    /* 上部固定ボタン */
+    .top-btn {
+      position:fixed;
+      top:12px;
+      z-index:1200;
+      background:transparent;
+      border:none;
+      font-size:1.9rem;
+      font-weight:700;
+      cursor:pointer;
+      user-select:none;
+    }
+    #btn-exit{ left:12px }
+    #btn-reset{ right:12px }
+
+    /* 進捗表示 */
+    #card-progress{
+      text-align:center;
+      font-size:1.25rem;
+      color:#444;
+      margin-bottom:12px;
+    }
+
+    /* カード領域（3Dフリップ設定） */
+    .card-wrap{
+      perspective:1000px; /* 奥行きの設定 */
+      width:100%;
+      min-height:30vh;
+      margin-bottom:24px;
+    }
+    .card{
+      width:100%;
+      height:100%;
+      min-height:30vh;
+      position:relative;
+      transition:transform 0.6s cubic-bezier(0.4, 0.0, 0.2, 1);
+      transform-style:preserve-3d;
+      cursor:pointer;
+    }
+    /* クラス付与で裏返る */
+    .card.is-flipped{
+      transform:rotateY(180deg);
+    }
+
+    /* カードの表面・裏面共通 */
+    .card-face{
+      position:absolute;
+      top:0; left:0;
+      width:100%; height:100%;
+      backface-visibility:hidden; /* 裏側を見えなくする */
+      background:#fff;
+      border-radius:12px;
+      box-shadow:0 4px 12px rgba(0,0,0,0.1);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:24px;
+      text-align:center;
+      word-break:break-word;
+    }
+
+    /* 表面（問題：CSV右側） */
+    .card-front{
+      font-size:1.15rem; /* スペルモードの問題と同サイズ */
+      line-height:1.6;
+    }
+
+    /* 裏面（解答：CSV左側） */
+    .card-back{
+      font-size:1.3rem; /* 表面より2pt大きいサイズ */
+      font-weight:700;
+      line-height:1.5;
+      transform:rotateY(180deg); /* 最初から裏返しておく */
+    }
+
+    /* 下部コントロール（〇 / × ボタン） */
+    .controls{
+      display:flex;
+      justify-content:center;
+      gap:30px;
+    }
+    .btn-judge{
+      width:64px;
+      height:64px;
+      border-radius:50%;
+      border:none;
+      color:#fff;
+      font-size:1.8rem;
+      font-weight:bold;
+      cursor:pointer;
+      box-shadow:0 4px 10px rgba(0,0,0,0.15);
+      transition:transform 0.1s;
+    }
+    .btn-judge:active{
+      transform:scale(0.92);
+    }
+    #btn-wrong { background-color:#d32f2f; } /* 赤：わからない */
+    #btn-correct { background-color:#2e7d32; } /* 緑：わかる */
+
+    /* ヒントテキスト */
+    .hint-text{
+      text-align:center;
+      font-size:0.85rem;
+      color:#777;
+      margin-top:16px;
+    }
+
+    /* 結果画面 */
+    .result{
+      width:100%;
+      background:#fff;
+      border-radius:12px;
+      padding:24px 18px;
+      box-shadow:0 2px 10px rgba(0,0,0,0.08);
+      text-align:center;
+      margin-top:18px;
+    }
+    .btn-primary{ 
+      background:#1976d2; color:#fff;
+      padding:12px 20px; border-radius:8px; border:none; font-size:1.05rem; cursor:pointer;
+    }
+
+    /* スマホ微調整 */
+    @media (max-width:480px){
+      .screen{ margin:15mm auto 20px; padding:0 10px; }
+      .card-front{ font-size:1.1rem; }
+      .card-back{ font-size:1.25rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 上部ボタン -->
+  <button id="btn-exit" class="top-btn" aria-label="戻る">×</button>
+  <button id="btn-reset" class="top-btn" aria-label="リセット">↺</button>
+
+  <main class="screen" id="main-screen">
+
+    <div id="card-progress">0 / 0</div>
+
+    <!-- カード領域 -->
+    <div class="card-wrap">
+      <div id="flashcard" class="card">
+        <!-- 表面（問題） -->
+        <div class="card-face card-front" id="card-question">読み込み中…</div>
+        <!-- 裏面（解答） -->
+        <div class="card-face card-back" id="card-answer"></div>
+      </div>
+    </div>
+
+    <!-- 判定ボタン -->
+    <div class="controls" id="controls-area">
+      <button id="btn-wrong" class="btn-judge" aria-label="わからない">×</button>
+      <button id="btn-correct" class="btn-judge" aria-label="わかる">〇</button>
+    </div>
+    
+    <div class="hint-text" id="hint-text">カードをタップして裏返す</div>
+
+    <!-- 結果表示（非表示） -->
+    <div id="result-area" class="result" style="display:none"></div>
+
+  </main>
+
+<script>
+/* ===== データ状態 ===== */
+let words = []; 
+let currentIndex = 0;
+let wrongList = [];        // 復習用（間違えた問題）
+let reviewMode = false;
+let reviewIndex = 0;
+
+/* ===== 要素 ===== */
+const card = document.getElementById('flashcard');
+const cardQuestion = document.getElementById('card-question');
+const cardAnswer = document.getElementById('card-answer');
+const cardProgress = document.getElementById('card-progress');
+const btnWrong = document.getElementById('btn-wrong');
+const btnCorrect = document.getElementById('btn-correct');
+const resultArea = document.getElementById('result-area');
+const controlsArea = document.getElementById('controls-area');
+const hintText = document.getElementById('hint-text');
+
+/* ===== 初期化 (CSV読み込み) ===== */
+document.addEventListener('DOMContentLoaded', async () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const csvUrl = urlParams.get('url');
+
+  if (!csvUrl) {
+    cardQuestion.textContent = "CSVのURLが指定されていません。モード選択からやり直してください。";
+    controlsArea.style.display = 'none';
+    hintText.style.display = 'none';
+    return;
+  }
+
+  try {
+    cardQuestion.textContent = "読み込み中...";
+    const response = await fetch(csvUrl);
+    if (!response.ok) throw new Error("ネットワークエラー");
+    const text = await response.text();
+
+    const lines = text.split('\n');
+    words = [];
+    for (let line of lines) {
+      line = line.trim();
+      if (!line) continue;
+      const parts = line.split(',');
+      if (parts.length >= 2) {
+        // 【修正】1つ目(parts[0])を答え(answer)、2つ目(parts[1])を問題(question)に反転
+        words.push({
+          answer: parts[0].trim(),
+          question: parts[1].trim()
+        });
+      }
+    }
+
+    if (words.length === 0) {
+      cardQuestion.textContent = "データがありません。";
+      controlsArea.style.display = 'none';
+      hintText.style.display = 'none';
+      return;
+    }
+
+    updateProgress();
+    showCard();
+
+  } catch (err) {
+    cardQuestion.textContent = "データの読み込みに失敗しました。";
+    console.error(err);
+  }
+});
+
+/* ===== ユーティリティ ===== */
+function safeItem(list, idx){
+  if (!Array.isArray(list) || list.length === 0) return null;
+  if (idx < 0) idx = 0;
+  if (idx >= list.length) idx = list.length - 1;
+  return list[idx];
+}
+
+/* ===== 表示更新 ===== */
+function updateProgress(){
+  if (reviewMode){
+    const total = Math.max(1, wrongList.length);
+    cardProgress.textContent = `${Math.min(reviewIndex + 1, total)} / ${total}`;
+  } else {
+    const total = Math.max(1, words.length);
+    cardProgress.textContent = `${Math.min(currentIndex + 1, total)} / ${total}`;
+  }
+}
+
+/* ===== カード表示 ===== */
+function showCard(){
+  // カードを表面に戻す（裏返りアニメーションを解除）
+  card.classList.remove('is-flipped');
+  
+  const item = reviewMode ? safeItem(wrongList, reviewIndex) : safeItem(words, currentIndex);
+  
+  if (!item){
+    cardQuestion.textContent = '問題がありません';
+    cardAnswer.textContent = '';
+    updateProgress();
+    return;
+  }
+
+  // アニメーションが戻りきる前にテキストが変わるのを防ぐため、少し遅延させる
+  setTimeout(() => {
+    cardQuestion.textContent = item.question;
+    cardAnswer.textContent = item.answer;
+    updateProgress();
+  }, 150);
+}
+
+/* ===== カードを裏返す操作 ===== */
+card.addEventListener('click', () => {
+  card.classList.toggle('is-flipped');
+});
+
+/* ===== 判定処理 ===== */
+btnWrong.addEventListener('click', () => {
+  const item = reviewMode ? safeItem(wrongList, reviewIndex) : safeItem(words, currentIndex);
+  if (item && !reviewMode) {
+    // 通常モードで間違えた場合、復習リストに追加
+    wrongList.push(item);
+  }
+  proceedNext();
+});
+
+btnCorrect.addEventListener('click', () => {
+  proceedNext();
+});
+
+function proceedNext(){
+  if (reviewMode){
+    reviewIndex++;
+    if (reviewIndex >= wrongList.length){
+      finishReview();
+      return;
+    }
+  } else {
+    currentIndex++;
+    if (currentIndex >= words.length){
+      finishCardMode();
+      return;
+    }
+  }
+  showCard();
+}
+
+/* ===== 終了処理（通常） ===== */
+function finishCardMode(){
+  const total = words.length;
+  const wrong = wrongList.length;
+  
+  card.style.display = 'none';
+  controlsArea.style.display = 'none';
+  hintText.style.display = 'none';
+  cardProgress.style.display = 'none';
+  
+  resultArea.style.display = 'block';
+  resultArea.innerHTML = `
+    <div style="font-size:1.2rem;font-weight:700;margin-bottom:12px">学習完了！</div>
+    <div style="font-size:1rem;margin-bottom:20px">間違えた問題: ${wrong} / ${total}</div>
+    ${ wrong > 0 
+      ? '<button id="btn-review" class="btn-primary">間違えた問題を復習する</button>' 
+      : '<button id="btn-back" class="btn-primary">モード選択へ戻る</button>' }
+  `;
+  
+  if (wrong > 0){
+    document.getElementById('btn-review').onclick = () => {
+      reviewMode = true;
+      reviewIndex = 0;
+      card.style.display = 'block';
+      controlsArea.style.display = 'flex';
+      hintText.style.display = 'block';
+      cardProgress.style.display = 'block';
+      resultArea.style.display = 'none';
+      showCard();
+    };
+  } else {
+    document.getElementById('btn-back').onclick = () => location.href = 'mode-select.html';
+  }
+}
+
+/* ===== 復習終了 ===== */
+function finishReview(){
+  card.style.display = 'none';
+  controlsArea.style.display = 'none';
+  hintText.style.display = 'none';
+  cardProgress.style.display = 'none';
+  
+  resultArea.style.display = 'block';
+  resultArea.innerHTML = `
+    <div style="font-size:1.2rem;font-weight:700;margin-bottom:12px">復習完了！</div>
+    <button id="btn-back2" class="btn-primary">モード選択へ戻る</button>
+  `;
+  document.getElementById('btn-back2').onclick = () => location.href = 'mode-select.html';
+}
+
+/* ===== 上部ボタン操作 ===== */
+document.getElementById('btn-exit').addEventListener('click', () => location.href = 'mode-select.html');
+document.getElementById('btn-reset').addEventListener('click', () => {
+  if (!confirm('学習状況をリセットして最初からやり直しますか？')) return;
+  currentIndex = 0;
+  wrongList = [];
+  reviewMode = false;
+  reviewIndex = 0;
+  showCard();
+});
+
+</script>
+</body>
+</html>

@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>教材一覧 - 暗記アプリ</title>
+<style>
+  body{font-family:sans-serif;padding:20px;max-width:720px;margin:auto}
+  h1{text-align:center}
+  #list{margin-top:20px}
+  .item{display:flex;align-items:center;justify-content:space-between;background:#fff;padding:12px 14px;margin-bottom:10px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.08)}
+  .left{display:flex;align-items:center;gap:12px;flex:1;cursor:pointer}
+  .title{font-weight:600;word-break:break-word}
+  .url{font-size:12px;color:#666}
+  .menu{position:relative;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .menu-dropdown{position:absolute;right:0;top:44px;background:#fff;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.12);min-width:140px;display:none;z-index:20}
+  .menu-dropdown button{width:100%;padding:10px;border:0;background:transparent;text-align:left;cursor:pointer}
+  .empty{text-align:center;color:#888;padding:30px 10px}
+</style>
+</head>
+<body>
+<h1>教材一覧</h1>
+
+<div id="list"></div>
+
+<script>
+/* ストレージキー */
+const STORAGE_KEY = "materials_list_v1";
+
+/* ユーティリティ */
+function loadMaterials(){ try{ return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); }catch(e){return [];} }
+function saveMaterials(list){ localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); }
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function getParam(name){ return new URLSearchParams(location.search).get(name); }
+
+/* 描画 */
+const listEl = document.getElementById("list");
+function render(){
+  const list = loadMaterials();
+  listEl.innerHTML = "";
+  if (!list.length){ listEl.innerHTML = '<div class="empty">教材がありません。URLから教材を登録してください。</div>'; return; }
+  list.forEach((m, idx) => {
+    const item = document.createElement("div"); item.className = "item";
+    const left = document.createElement("div"); left.className = "left";
+    left.onclick = () => openMaterialAt(idx);
+    const title = document.createElement("div");
+    title.innerHTML = `<div class="title">${escapeHtml(m.name || m.url.split('/').pop())}</div><div class="url">${escapeHtml(m.url)}</div>`;
+    left.appendChild(title);
+    const menu = document.createElement("div"); menu.className = "menu";
+    menu.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;"><span style="width:4px;height:4px;background:#333;border-radius:50%;margin:2px 0"></span><span style="width:4px;height:4px;background:#333;border-radius:50%;margin:2px 0"></span><span style="width:4px;height:4px;background:#333;border-radius:50%;margin:2px 0"></span></div>';
+    const dropdown = document.createElement("div"); dropdown.className = "menu-dropdown";
+    dropdown.innerHTML = `<button data-action="remove">この教材を削除</button><button data-action="reset">進捗をリセット</button>`;
+    menu.appendChild(dropdown);
+    menu.addEventListener("click", ev => { ev.stopPropagation(); const shown = dropdown.style.display === "block"; closeAllDropdowns(); dropdown.style.display = shown ? "none" : "block"; });
+    dropdown.addEventListener("click", ev => { ev.stopPropagation(); const action = ev.target.getAttribute("data-action"); if(action==="remove") removeMaterial(idx); if(action==="reset") resetProgress(idx); dropdown.style.display="none"; });
+    item.appendChild(left); item.appendChild(menu); listEl.appendChild(item);
+  });
+}
+function closeAllDropdowns(){ document.querySelectorAll(".menu-dropdown").forEach(d=>d.style.display="none"); }
+document.addEventListener("click", closeAllDropdowns);
+
+/* 操作 */
+function removeMaterial(index){
+  if (!confirm("この教材を生徒の一覧から完全に削除しますか？")) return;
+  const list = loadMaterials(); const mat = list.splice(index,1)[0]; saveMaterials(list);
+  const id = materialIdFromUrl(mat.url);
+  ['progress','excluded','wrong'].forEach(k => localStorage.removeItem(`${k}_${id}_card`));
+  ['progress','excluded','wrong'].forEach(k => localStorage.removeItem(`${k}_${id}_spell`));
+  render();
+}
+
+/ * 進捗リセット */
+function resetProgress(index){
+  if (!confirm("この教材の進捗をリセットしますか？")) return;
+  const list = loadMaterials(); const mat = list[index]; const id = materialIdFromUrl(mat.url);
+  ['progress','excluded','wrong'].forEach(k => localStorage.removeItem(`${k}_${id}_card`));
+  ['progress','excluded','wrong'].forEach(k => localStorage.removeItem(`${k}_${id}_spell`));
+  alert("進捗をリセットしました");
+}
+
+/* 教材を開く */
+function openMaterialAt(index){
+  const list = loadMaterials();
+  if (!list || index < 0 || index >= list.length) return;
+  const mat = list[index];
+  window.location.href = `mode-select.html?url=${encodeURIComponent(mat.url)}&startIndex=${index}`;
+}
+
+/* 自動再開 */
+function autoOpenIfResume(){
+  const resume = getParam('resumeIndex');
+  if (!resume) return;
+  const idx = Number(resume);
+  if (Number.isNaN(idx)) return;
+  setTimeout(()=> openMaterialAt(idx), 300);
+}
+
+/* materialId ユーティリティ */
+function materialIdFromUrl(url){
+  try{ return btoa(unescape(encodeURIComponent(url))).replace(/=+$/,""); }
+  catch(e){ return encodeURIComponent(url).replace(/[^a-zA-Z0-9]/g,'_'); }
+}
+
+/* 初期化 */
+document.addEventListener("DOMContentLoaded", () => {
+  const urlParam = getParam('url');
+  if (urlParam) {
+    const list = loadMaterials();
+    const exists = list.some(m => m.url === urlParam);
+    if (!exists) {
+      const nameParam = getParam('name') || urlParam.split('/').pop().replace('.csv', '');
+      list.push({ name: nameParam, url: urlParam });
+      saveMaterials(list);
+    }
+  }
+
+  render(); 
+  autoOpenIfResume(); 
+});
+</script>
+</body>
+</html>

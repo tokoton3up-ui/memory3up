@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>スペルモード</title>
+  <style>
+    /* リセット */
+    *,*::before,*::after{box-sizing:border-box}
+    html,body{height:100%;margin:0;padding:0}
+    
+    /* bodyのレイアウトをカードモードと完全に統一し、中央揃えの土台を作る */
+    body{
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f2f2f2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      color:#111;
+      -webkit-text-size-adjust:100%;
+    }
+
+    /* 全体ラッパー（カードモードと幅・余白を全く同じ数値に統一） */
+    .screen{
+      width: 100%;
+      max-width: 500px;
+      margin: 18px auto;
+      padding: 0 12px;
+      box-sizing: border-box;
+      display: block;
+    }
+
+    /* 上部ボタンの固定(fixed)を解除し、自然な配置にするためのバー */
+    .top-bar {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    /* ボタンの絶対配置指定を削除 */
+    .top-btn {
+      background:transparent;
+      border:none;
+      font-size:1.9rem;
+      font-weight:700;
+      cursor:pointer;
+      user-select:none;
+      padding: 0;
+      line-height: 1;
+    }
+
+    /* 問題領域 */
+    .question-area{
+      width:100%;
+      background:#fff;
+      border-radius:12px;
+      box-shadow:0 2px 10px rgba(0,0,0,0.08);
+      padding:18px;
+      margin:0 auto 14px;
+      min-height: 22vh;
+      display:flex;
+      flex-direction:column;
+      justify-content:flex-start;
+      gap:12px;
+    }
+
+    /* 文字サイズを18pxに、文字配置を左揃え(left) */
+    #spell-question{
+      font-size: 18px;
+      line-height:1.7;
+      text-align:left;
+      word-break:break-word;
+    }
+
+    /* 進捗（中央・大きめ） */
+    #spell-progress{
+      text-align:center;
+      font-size:1.25rem;
+      color:#444;
+      margin-top:4px;
+    }
+
+    /* 入力欄（カードと幅を揃える） */
+    .input-wrap{
+      width:100%;
+      display:flex;
+      justify-content:center;
+      margin-top:6px;
+    }
+    /* 入力欄の幅を100%にして、500pxの枠内にピッタリ収める */
+    #spell-input{
+      width: 100%;
+      padding:18px 14px;
+      font-size: 16px;
+      border-radius:10px;
+      border:1px solid #ccc;
+      outline:none;
+      background:#fff;
+      box-shadow:none;
+      box-sizing:border-box;
+    }
+
+    /* 正解マーク（赤） */
+    #spell-correct-mark{
+      text-align:center;
+      color:#c62828;
+      font-weight:900;
+      font-size:3.6rem;
+      line-height:1;
+      margin-top:8px;
+      height:1em;
+      user-select:none;
+    }
+
+    /* 下部コントロール */
+    .controls{
+      width:100%;
+      display:flex;
+      justify-content:center;
+      gap:12px;
+      margin-top:12px;
+    }
+    .btn{
+      padding:10px 14px;
+      border-radius:8px;
+      border:none;
+      cursor:pointer;
+      font-size:1rem;
+    }
+    .btn-primary{ background:#1976d2; color:#fff }
+
+    /* 誤答オーバーレイ（中央に大きな青い × と正答） */
+    .overlay{
+      position:fixed;
+      left:0; top:0;
+      width:100vw; height:100vh;
+      display:none;
+      align-items:center; justify-content:center;
+      background:rgba(0,0,0,0.36);
+      z-index:2000;
+      padding:20px;
+    }
+    .overlay.visible{ display:flex }
+    .overlay-box{
+      background:#fff;
+      border-radius:12px;
+      padding:18px;
+      min-width:60%;
+      max-width:92%;
+      text-align:center;
+      box-shadow:0 8px 30px rgba(0,0,0,0.28);
+    }
+    .overlay-x{
+      color:#1565c0; /* 青 */
+      font-weight:900;
+      font-size:5.0rem;
+      line-height:1;
+      margin-bottom:12px;
+      user-select:none;
+    }
+    .overlay-answer{
+      color:#111;
+      font-size: 18px;
+      font-weight: bold;
+      word-break:break-word;
+    }
+
+    /* 結果画面（簡易） */
+    .result{
+      width:100%;
+      margin:18px auto;
+      background:#fff;
+      border-radius:12px;
+      padding:18px;
+      box-shadow:0 2px 10px rgba(0,0,0,0.08);
+      text-align:center;
+    }
+
+    /* スマホ微調整 */
+    @media (max-width:480px){
+      .screen{ margin:18px auto; padding:0 12px; }
+      #spell-input{ padding:16px 12px; }
+      #spell-correct-mark{ font-size:3.2rem }
+      .overlay-x{ font-size:4.2rem }
+    }
+  </style>
+</head>
+<body>
+
+  <main class="screen" id="main-screen">
+
+    <div class="top-bar">
+      <button id="btn-exit" class="top-btn" aria-label="戻る">×</button>
+      <button id="btn-reset" class="top-btn" aria-label="リセット">↺</button>
+    </div>
+
+    <!-- 問題表示領域 -->
+    <section class="question-area" id="question-area">
+      <div id="spell-question">読み込み中…</div>
+      <div id="spell-progress">0 / 0</div>
+      <div id="spell-correct-mark" aria-hidden="true"></div>
+    </section>
+
+    <!-- 入力欄 -->
+    <div class="input-wrap">
+      <input id="spell-input" type="text" autocomplete="off" inputmode="text" placeholder="ここに入力して Enter" />
+    </div>
+
+    <!-- 下部コントロール -->
+    <div class="controls" aria-hidden="true">
+      <button id="btn-check" class="btn btn-primary">判定</button>
+    </div>
+
+    <!-- 結果表示（非表示） -->
+    <div id="result-area" class="result hidden" style="display:none"></div>
+
+  </main>
+
+  <!-- 誤答オーバーレイ -->
+  <div id="overlay" class="overlay" role="dialog" aria-modal="true">
+    <div class="overlay-box" id="overlay-box">
+      <div class="overlay-x">×</div>
+      <div class="overlay-answer" id="overlay-answer"></div>
+      <div style="font-size:0.85rem;color:#666;margin-top:10px">画面をタップして次へ</div>
+    </div>
+  </div>
+
+<script>
+/* ===== データ状態 ===== */
+let words = []; 
+let originalWords = [];
+
+let currentIndex = 0;
+let wrongList = [];        // 復習用（重複は入れない）
+let reviewMode = false;
+let reviewIndex = 0;
+let currentCsvUrl = "";    // 現在のCSV URL（保存キーに使用）
+
+/* ===== 要素 ===== */
+const spellQuestion = document.getElementById('spell-question');
+const spellProgress = document.getElementById('spell-progress');
+const spellInput = document.getElementById('spell-input');
+const correctMark = document.getElementById('spell-correct-mark');
+const overlay = document.getElementById('overlay');
+const overlayAnswer = document.getElementById('overlay-answer');
+const btnExit = document.getElementById('btn-exit');
+const btnReset = document.getElementById('btn-reset');
+const btnCheck = document.getElementById('btn-check');
+const resultArea = document.getElementById('result-area');
+
+/* ===== ローカルストレージ保存・読み込み機能 ===== */
+function saveProgress() {
+  if (!currentCsvUrl) return;
+  const data = {
+    currentIndex,
+    wrongList,
+    reviewMode,
+    reviewIndex
+  };
+  localStorage.setItem('spellProgress_' + currentCsvUrl, JSON.stringify(data));
+}
+
+function loadProgress() {
+  if (!currentCsvUrl) return;
+  const savedData = localStorage.getItem('spellProgress_' + currentCsvUrl);
+  if (savedData) {
+    try {
+      const parsed = JSON.parse(savedData);
+      currentIndex = parsed.currentIndex || 0;
+      wrongList = parsed.wrongList || [];
+      reviewMode = parsed.reviewMode || false;
+      reviewIndex = parsed.reviewIndex || 0;
+
+      // すべて完了した状態で再読み込みした場合は最初からにする
+      if (!reviewMode && currentIndex >= words.length) {
+        resetProgressState();
+      } else if (reviewMode && reviewIndex >= wrongList.length) {
+        resetProgressState();
+      }
+    } catch(e) {
+      console.error('保存データの読み込みに失敗しました', e);
+    }
+  }
+}
+
+function resetProgressState() {
+  currentIndex = 0;
+  wrongList = [];
+  reviewMode = false;
+  reviewIndex = 0;
+  if (currentCsvUrl) {
+    localStorage.removeItem('spellProgress_' + currentCsvUrl);
+  }
+}
+
+/* ===== 初期化 (CSV読み込み) ===== */
+document.addEventListener('DOMContentLoaded', async () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  currentCsvUrl = urlParams.get('url');
+
+  if (!currentCsvUrl) {
+    spellQuestion.textContent = "CSVのURLが指定されていません。モード選択からやり直してください。";
+    return;
+  }
+
+  try {
+    spellQuestion.textContent = "読み込み中...";
+    const response = await fetch(currentCsvUrl);
+    if (!response.ok) throw new Error("ネットワークエラー");
+    const text = await response.text();
+
+    // CSVのパース（カンマ区切り）
+    const lines = text.split('\n');
+    words = [];
+    for (let line of lines) {
+      line = line.trim();
+      if (!line) continue;
+      const parts = line.split(',');
+      if (parts.length >= 2) {
+        words.push({
+          question: parts[1].trim(),
+          answer: parts[0].trim()
+        });
+      }
+    }
+    
+    originalWords = words.slice();
+
+    if (words.length === 0) {
+      spellQuestion.textContent = "データがありません。";
+      return;
+    }
+
+    // ★ ここで保存データを読み込む
+    loadProgress();
+
+    updateProgress();
+    
+    // すでに完了画面の状態なら完了画面を出す、そうでなければ問題を表示
+    if (!reviewMode && currentIndex >= words.length) {
+      finishSpell();
+    } else if (reviewMode && reviewIndex >= wrongList.length) {
+      finishReview();
+    } else {
+      showQuestion();
+    }
+
+  } catch (err) {
+    spellQuestion.textContent = "データの読み込みに失敗しました。";
+    console.error(err);
+  }
+});
+
+/* ===== ユーティリティ ===== */
+function safeItem(list, idx){
+  if (!Array.isArray(list) || list.length === 0) return null;
+  if (idx < 0) idx = 0;
+  if (idx >= list.length) idx = list.length - 1;
+  return list[idx];
+}
+
+/* ===== 表示更新 ===== */
+function updateProgress(){
+  if (reviewMode){
+    const total = Math.max(1, wrongList.length);
+    spellProgress.textContent = `${Math.min(reviewIndex + 1, total)} / ${total}`;
+  } else {
+    const total = Math.max(1, words.length);
+    spellProgress.textContent = `${Math.min(currentIndex + 1, total)} / ${total}`;
+  }
+}
+
+/* ===== 問題表示 ===== */
+function showQuestion(){
+  // 結果画面を隠して入力欄等を表示
+  resultArea.style.display = 'none';
+  document.querySelector('.input-wrap').style.display = 'flex';
+  document.querySelector('.controls').style.display = 'flex';
+
+  const item = reviewMode ? safeItem(wrongList, reviewIndex) : safeItem(words, currentIndex);
+  if (!item){
+    spellQuestion.textContent = '問題がありません';
+    spellInput.value = '';
+    correctMark.textContent = '';
+    updateProgress();
+    return;
+  }
+  spellQuestion.textContent = item.question;
+  spellInput.value = '';
+  correctMark.textContent = '';
+  hideOverlay();
+  
+  updateProgress();
+  
+  // ★ 表示のタイミングで状態を保存
+  saveProgress();
+}
+
+/* ===== wrongList 管理（重複防止） ===== */
+function addToWrongList(item){
+  if (!item) return;
+  const key = (item.question||'') + '||' + (item.answer||'');
+  if (!wrongList.some(w => ((w.question||'') + '||' + (w.answer||'')) === key)){
+    wrongList.push(item);
+  }
+}
+
+/* ===== 判定処理 ===== */
+function checkAnswer(){
+  const item = reviewMode ? safeItem(wrongList, reviewIndex) : safeItem(words, currentIndex);
+  if (!item) return;
+  const user = (spellInput.value || '').trim();
+  const correct = (item.answer || '').trim();
+
+  if (user === correct && user !== ''){
+    // 正解：赤い〇を表示して短時間で次へ
+    correctMark.textContent = '〇';
+    correctMark.style.color = '#c62828';
+    setTimeout(()=> {
+      if (correctMark.textContent === '〇') correctMark.textContent = '';
+      proceedNextAfterAnswer(true);
+    }, 600);
+  } else {
+    // 不正解：wrongList に追加
+    addToWrongList(item);
+    saveProgress(); // ★ リスト追加を保存
+    overlayAnswer.textContent = correct || '(正答なし)';
+    showOverlay();
+  }
+}
+
+/* ===== 次へ進むロジック ===== */
+function proceedNextAfterAnswer(wasCorrect){
+  if (reviewMode){
+    reviewIndex++;
+    saveProgress(); // ★ 進捗を保存
+    if (reviewIndex >= wrongList.length){
+      finishReview();
+      return;
+    }
+    showQuestion();
+    return;
+  }
+
+  currentIndex++;
+  saveProgress(); // ★ 進捗を保存
+  if (currentIndex >= words.length){
+    finishSpell();
+    return;
+  }
+  showQuestion();
+}
+
+/* ===== オーバーレイ表示/非表示 ===== */
+function showOverlay(){
+  overlay.classList.add('visible');
+  overlay.style.display = 'flex';
+  overlay.onclick = () => {
+    hideOverlay();
+    proceedNextAfterAnswer(false);
+  };
+}
+function hideOverlay(){
+  overlay.classList.remove('visible');
+  overlay.style.display = 'none';
+  overlay.onclick = null;
+}
+
+/* ===== 終了処理（通常） ===== */
+function finishSpell(){
+  // 入力欄を隠す
+  document.querySelector('.input-wrap').style.display = 'none';
+  document.querySelector('.controls').style.display = 'none';
+  
+  const total = words.length;
+  const wrong = wrongList.length;
+  const correctCount = Math.max(0, total - wrong);
+  resultArea.style.display = 'block';
+  resultArea.innerHTML = `
+    <div style="font-size:1.15rem;font-weight:700;margin-bottom:10px">終了</div>
+    <div style="font-size:1rem;margin-bottom:12px">${correctCount} / ${total} 正解</div>
+    ${ wrong > 0 ? '<button id="btn-review" class="btn btn-primary">間違えた問題を復習</button>' : '<button id="btn-back" class="btn btn-primary">モード選択へ</button>' }
+  `;
+  if (wrong > 0){
+    document.getElementById('btn-review').onclick = () => {
+      reviewMode = true;
+      reviewIndex = 0;
+      saveProgress(); // ★ 復習モードへの移行を保存
+      showQuestion();
+    };
+  } else {
+    document.getElementById('btn-back').onclick = () => location.href = 'mode-select.html';
+  }
+}
+
+/* ===== 復習終了 ===== */
+function finishReview(){
+  document.querySelector('.input-wrap').style.display = 'none';
+  document.querySelector('.controls').style.display = 'none';
+
+  resultArea.style.display = 'block';
+  resultArea.innerHTML = `
+    <div style="font-size:1.15rem;font-weight:700;margin-bottom:10px">復習完了</div>
+    <button id="btn-back2" class="btn btn-primary">モード選択へ</button>
+  `;
+  document.getElementById('btn-back2').onclick = () => location.href = 'mode-select.html';
+}
+
+/* ===== イベントバインド ===== */
+spellInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    checkAnswer();
+  }
+});
+btnCheck.addEventListener('click', checkAnswer);
+
+btnExit.addEventListener('click', () => location.href = 'mode-select.html');
+
+/* ★変更: リセットボタンで学習記録をすべてリセットし、1問目からやり直せるようにしました */
+btnReset.addEventListener('click', () => {
+  if (!confirm('学習の進捗と復習リストをリセットして、最初からやり直しますか？')) return;
+  resetProgressState();
+  alert('リセットしました');
+  showQuestion();
+});
+
+/* カード領域（問題領域）をタップしたときの挙動 */
+document.getElementById('question-area').addEventListener('click', () => {
+  if (correctMark.textContent === '〇') {
+    correctMark.textContent = '';
+    proceedNextAfterAnswer(true);
+  }
+});
+
+</script>
+</body>
+</html>
